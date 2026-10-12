@@ -52,7 +52,7 @@ python river.py --proxy proxy.txt --first Dimas --last Pratama --password "Rahas
 | `--manual-turnstile` | off | klik Turnstile manual kalau auto gagal |
 | `--key-name` | `auto` | nama API key yang dibuat |
 | `--first` / `--last` | acak (nama Indonesia) | nama akun |
-| `--password` | `ReactVite.911` | password akun (min 10 char) |
+| `--password` | `Knx.Quacks911` | password akun (min 10 char) |
 | `--email-prefix` | — | prefix email sementara |
 | `--keep-open` | off | biarkan browser terbuka setelah selesai |
 
