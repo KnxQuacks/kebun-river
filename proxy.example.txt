@@ -1,0 +1,10 @@
+# format satu proxy per baris: host:port:user:pass
+# contoh:
+# px121101.pointtoserver.com:10780:username:password
+# 8.215.25.3:2080:username:password
+#
+# cara pakai:
+#   python river.py --headless --count 2 --proxy proxy.txt --key-name auto
+#
+# catatan: pakai proxy residensial. IP datacenter biasanya mentok di
+# Cloudflare security verification halaman authkit.
