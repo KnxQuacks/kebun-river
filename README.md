@@ -36,6 +36,9 @@ python river.py --proxy proxy.txt --key-name auto
 # bulk 2 akun, headless (tanpa browser kelihatan)
 python river.py --headless --count 2 --proxy proxy.txt --key-name auto
 
+# bulk 4 akun, 4 paralel (concurrent)
+python river.py --headless --count 4 --workers 4 --proxy proxy.txt --key-name auto
+
 # nama / password custom
 python river.py --proxy proxy.txt --first Dimas --last Pratama --password "Rahasia.123" --key-name tes
 ```
@@ -44,6 +47,7 @@ python river.py --proxy proxy.txt --first Dimas --last Pratama --password "Rahas
 | --- | --- | --- |
 | `--proxy` | — | URL proxy atau file proxy (`host:port:user:pass` per baris) |
 | `--count` | `1` | jumlah akun bulk |
+| `--workers` | `1` | jumlah akun yang diproses paralel (tiap worker browser + proxy sendiri, tulis hasil dikunci) |
 | `--headless` | off | jalan tanpa menampilkan browser |
 | `--manual-turnstile` | off | klik Turnstile manual kalau auto gagal |
 | `--key-name` | `auto` | nama API key yang dibuat |
