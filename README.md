@@ -67,7 +67,7 @@ Contoh `result.json`:
     "first_name": "Farhan",
     "last_name": "Rahman",
     "email": "l233ch4@souss.dev",
-    "password": "ReactVite.911",
+    "password": "Knx.Quacks911",
     "api_key": "rv_...",
     "api_key_status": "created",
     "console": "https://console.river.ai"
