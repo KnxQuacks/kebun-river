@@ -19,11 +19,13 @@ Hasil selalu disimpan (append, anti-duplikat):
 """
 
 import argparse
+import concurrent.futures
 import json
 import os
 import random
 import re
 import sys
+import threading
 import time
 import urllib.parse
 
@@ -53,7 +55,7 @@ LAST = ["Pratama", "Saputra", "Wijaya", "Santoso", "Nugroho", "Kusuma", "Rahman"
         "Setiawan", "Hidayat", "Gunawan", "Firmansyah", "Ramadhan", "Maharani",
         "Anggraini", "Lestari", "Puspita", "Wulandari", "Utami"]
 
-DEFAULT_PASSWORD = "Knx.Quacks911"
+DEFAULT_PASSWORD = "ReactVite.911"
 
 
 def gen_password(n=20):
@@ -119,10 +121,17 @@ def append_apikey(path, api_key):
 
 def log(msg):
     line = f"[river] {msg}"
+    tag = getattr(_worker, "tag", "")
+    if tag:
+        line = f"[river][{tag}] {msg}"
     try:
         print(line, flush=True)
     except UnicodeEncodeError:
         print(line.encode("ascii", errors="replace").decode("ascii"), flush=True)
+
+
+_worker = threading.local()
+FILE_LOCK = threading.Lock()
 
 
 def build_proxy(args):
@@ -471,32 +480,6 @@ def build_authorize_url(page):
     return f"https://{cfg['workos_api_hostname']}/user_management/authorize?{q}"
 
 
-def wait_authenticated(page, timeout=45):
-    """Tunggu login kelar: cek /api/me (authenticated) di konteks halaman.
-
-    SDK WorkOS baru tidak lagi menyimpan workos:access-token di
-    sessionStorage, jadi cek sessionStorage saja selalu timeout penuh.
-    """
-    deadline = time.time() + timeout
-    while time.time() < deadline:
-        try:
-            me = page.evaluate(
-                "() => fetch('/api/me', {headers: {'Accept': 'application/json'}})"
-                ".then(r => r.json()).catch(() => ({}))")
-            if isinstance(me, dict) and me.get("authenticated"):
-                return True
-        except Exception:
-            pass
-        try:
-            if "console.river.ai" in page.url and "login.console.river.ai" not in page.url:
-                # sudah di console, beri 1x cek cepat tambahan
-                pass
-        except Exception:
-            pass
-        time.sleep(2)
-    return False
-
-
 def do_signup(page, first, last, email, password, manual_turnstile=False):
     # alur normal via SPA: console.river.ai auto-redirect ke login.console.river.ai
     # (verifier PKCE sudah diset SPA sendiri, jangan dioverride)
@@ -811,6 +794,7 @@ def build_proxy_from_url(url):
 
 def run_once(args, proxy_url, idx, total_n):
     """Satu akun penuh. Return result dict."""
+    _worker.tag = f"{idx}/{total_n}"
     netlog = []
     first = args.first or random.choice(FIRST)
     last = args.last or random.choice(LAST)
@@ -841,11 +825,6 @@ def run_once(args, proxy_url, idx, total_n):
         if "login.console.river.ai" in page.url:
             code = wait_for_code(zv, email)
             enter_code(page, code)
-        # SPA menukar ?code= dengan token via verifier di sessionStorage
-        if wait_authenticated(page, timeout=120):
-            log("autentikasi SPA selesai (token tersimpan)")
-        else:
-            log("peringatan: token tidak terdeteksi di sessionStorage, lanjut apa adanya")
         ensure_session(page)
         api_key, status = get_api_key(page, netlog, args.key_name)
 
@@ -859,17 +838,19 @@ def run_once(args, proxy_url, idx, total_n):
         print(f"password: {password}")
         print(f"api key : {api_key} ({status})")
         # selalu simpan: result.json (array akun) + apikeys.txt (key per baris)
-        total = append_unique_result(RESULT_JSON, result)
-        log(f"hasil ditambah ke {RESULT_JSON} (total {total} akun)")
-        if append_apikey(APIKEYS_TXT, api_key):
-            log(f"apikey ditambah ke {APIKEYS_TXT}")
-        else:
-            log("apikey sudah tercatat, skip duplikat")
+        with FILE_LOCK:
+            total = append_unique_result(RESULT_JSON, result)
+            log(f"hasil ditambah ke {RESULT_JSON} (total {total} akun)")
+            if append_apikey(APIKEYS_TXT, api_key):
+                log(f"apikey ditambah ke {APIKEYS_TXT}")
+            else:
+                log("apikey sudah tercatat, skip duplikat")
         return result
     finally:
-        with open(os.path.join(OUT, "network.json"), "w", encoding="utf-8") as f:
+        net_name = "network.json" if total_n == 1 else f"network_{idx}.json"
+        with open(os.path.join(OUT, net_name), "w", encoding="utf-8") as f:
             json.dump(netlog, f, indent=1, ensure_ascii=False)
-        log(f"{len(netlog)} network events tersimpan")
+        log(f"{len(netlog)} network events tersimpan ({net_name})")
         if not args.keep_open:
             close_browser(browser)
 
@@ -881,7 +862,9 @@ def main():
     ap.add_argument("--proxy", default=None,
                     help="URL proxy tunggal atau path file (satu proxy per baris)")
     ap.add_argument("--count", type=int, default=1,
-                    help="jumlah akun yang dibuat berurutan (bulk)")
+                    help="jumlah akun yang dibuat (bulk)")
+    ap.add_argument("--workers", type=int, default=1,
+                    help="jumlah akun yang diproses paralel (concurrent)")
     ap.add_argument("--email-prefix", default=None)
     ap.add_argument("--key-name", default="auto")
     ap.add_argument("--first", default=None)
@@ -894,16 +877,34 @@ def main():
     os.makedirs(OUT, exist_ok=True)
     proxies = load_proxies(args.proxy)
     n = max(1, args.count)
-    ok, fail = [], []
-    for idx in range(1, n + 1):
+    workers = max(1, min(args.workers, n))
+    log(f"bulk: {n} akun x {workers} workers")
+
+    def _job(idx):
         proxy_url = proxies[(idx - 1) % len(proxies)] if proxies else None
-        try:
-            ok.append(run_once(args, proxy_url, idx, n))
-        except Exception as e:
-            log(f"akun {idx}/{n} GAGAL: {str(e)[:150]}")
-            fail.append(idx)
-        if idx < n:
-            time.sleep(5)
+        return run_once(args, proxy_url, idx, n)
+
+    ok, fail = [], []
+    if workers == 1:
+        for idx in range(1, n + 1):
+            try:
+                ok.append(_job(idx))
+            except Exception as e:
+                log(f"akun {idx}/{n} GAGAL: {str(e)[:150]}")
+                fail.append(idx)
+            if idx < n:
+                time.sleep(5)
+    else:
+        with concurrent.futures.ThreadPoolExecutor(max_workers=workers) as ex:
+            futs = {ex.submit(_job, idx): idx for idx in range(1, n + 1)}
+            for fut in concurrent.futures.as_completed(futs):
+                idx = futs[fut]
+                try:
+                    ok.append(fut.result())
+                except Exception as e:
+                    log(f"akun {idx}/{n} GAGAL: {str(e)[:150]}")
+                    fail.append(idx)
+    ok.sort(key=lambda r: r.get("email", ""))
     print(f"\n===== RINGKASAN: {len(ok)} sukses, {len(fail)} gagal =====")
     for r in ok:
         print(f"- {r['email']} : {r['api_key']}")
