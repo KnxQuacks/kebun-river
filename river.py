@@ -53,7 +53,7 @@ LAST = ["Pratama", "Saputra", "Wijaya", "Santoso", "Nugroho", "Kusuma", "Rahman"
         "Setiawan", "Hidayat", "Gunawan", "Firmansyah", "Ramadhan", "Maharani",
         "Anggraini", "Lestari", "Puspita", "Wulandari", "Utami"]
 
-DEFAULT_PASSWORD = "ReactVite.911"
+DEFAULT_PASSWORD = "Knx.Quacks911"
 
 
 def gen_password(n=20):
